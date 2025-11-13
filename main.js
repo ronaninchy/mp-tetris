@@ -29,19 +29,7 @@ const garbageColor = 'rgb(153, 153, 153)'
 
 
 class TetrisPlr {
-    /*
-    un/drawpiece func
-    createpiece func
-    rotate func
-    tick func
-    move func
-    clearlines func
-    place func
-     */
-    /*
-    add instant softdrop, harddrop, settings, fix piecelock
-    add line clearing
-     */
+    
     constructor(plr){
         this.lineclearstemp = 0
         this.currentPiece = {pos:{x:[],y:[]}}
@@ -95,7 +83,7 @@ class TetrisPlr {
         this.boardgarbage = []
         this.nextbag =  shuffle(['Z','S','O','I','J','L','T'])
         this.bag =  shuffle(['Z','S','O','I','J','L','T'])
-        
+        this.isTspin = false;
         this.garbageQueue = []
         this.prevRowOffset = Math.sum(...this.garbageQueue)
         
@@ -299,7 +287,10 @@ class TetrisPlr {
             this.currentPiece.pos.y[i] = pieceSpawnPos[pieceType][0][i].y + this.startingRowsOffset
         }
         
-        if(!this.wontCollide(this.currentPiece.pos,{x:0,y:0})){p1.isAlive = false; return;}
+        if(!this.wontCollide(this.currentPiece.pos,{x:0,y:0})){
+            p1.isAlive = false;
+            if(connected) document.querySelector('#startMP').disabled = false; 
+            return;}
 
         if(connected){
             if(!this.holding){
@@ -313,10 +304,11 @@ class TetrisPlr {
                 if(this.garbageQueue[this.garbageQueue.length-1] === 0) this.garbageQueue.pop()
                 this.dmgbar.style.height = parseInt(this.dmgbar.style.height) - (min*unit) + 'px'
                 }
-                dc.send(JSON.stringify({
-                    type:'updateDmgBar',
-                    data: this.dmgbar.style.height
-                }))
+                
+            }
+            else{
+                this.isTspin = false;
+                this.lineclearstemp = 0;
             }
            
             
@@ -413,7 +405,7 @@ class TetrisPlr {
         this.mainCtx.clearRect(0,0,2000,2000)
         this.lineclearstemp = 0
         
-        
+        this.isTspin = false;
         if(this.currentPiece.type === 'T'){ // t spin
             let yCenter = this.currentPiece.pos.y[2], xCenter =this.currentPiece.pos.x[2]
             let sum = 0
@@ -439,7 +431,7 @@ class TetrisPlr {
                 }
 
                  }
-            //console.log(sum)
+            
     
                 
             
@@ -474,17 +466,6 @@ class TetrisPlr {
         this.mainCtx.globalAlpha = 1
         
         if(rendergarbagebool) this.renderGarbage()
-        //console.log(this.placed,this.grid)
-        
-        /*for(const part of this.placed){
-            this.mainCtx.fillStyle = part.color
-            
-            if(this.grid[part.y] === undefined) console.log(part.y,this.grid,part.color)
-            this.grid[part.y][part.x] = 1
-            
-            this.mainCtx.fillRect(part.x*unit,(part.y-this.startingRowsOffset)*unit + canvasOffset,unit,unit)
-        }*/
-        //this.garbageQueue = [2,3]
         
         
     }
@@ -504,14 +485,12 @@ class TetrisPlr {
         }
     }
     clearGarbage(clearedY){
-        console.log('garbage')
+        console.log('clearing garbage')
         
         this.mainCtx.clearRect(0,(clearedY - this.startingRowsOffset)*unit + canvasOffset,1000,unit)
         for(let i=0;i<this.placed.length;i++){
             let part = this.placed[i]
             if(part.y === clearedY){
-                //if(this.grid[part.y]!= undefined) this.grid[part.y][part.x] = 0
-                //else console.log(part.y,this.grid)
                 this.placed.splice(i,1)
                 i--;
             }
@@ -784,7 +763,7 @@ String.prototype.replaceAt = function(start,replacement){
 }
 
 settingsContainer.querySelectorAll('button.keybind').forEach((HTMLkeybind)=>{
-    HTMLkeybind.innerHTML = settings[HTMLkeybind.name]
+    HTMLkeybind.innerHTML = (HTMLkeybind.name === 'DAS' || HTMLkeybind.name === 'ARR')?settings[HTMLkeybind.name]/(1000/60):settings[HTMLkeybind.name]
     HTMLkeybind.onclick = function(){
         modal.style.display = 'block'
         window.addEventListener('keydown',changeKey)
@@ -794,7 +773,6 @@ settingsContainer.querySelectorAll('button.keybind').forEach((HTMLkeybind)=>{
             HTMLkeybind.innerHTML = key
             console.log(HTMLkeybind.parentElement)
             settings[HTMLkeybind.name] = key
-            console.log(settings)
             window.removeEventListener('keydown',changeKey)
             modal.style.display = 'none'
         }
@@ -804,22 +782,7 @@ settingsContainer.querySelectorAll('button.keybind').forEach((HTMLkeybind)=>{
 
 })
 
-/*
-webrtc section
 
-
-
-connect 2 clients
-send events for:
-    piece moving
-    piece rotating
-    piece place
-    garbage send
-    garbage cancel
-
-
-FUNCTIONS TO RECEIEVE GARBAGE
- */
 const DMG_Values = {
     0 : 0,
     1 : 0,
@@ -841,7 +804,7 @@ const eventFunctions = {
         
     },
     pieceCreated(obj){
-        console.log(obj,obj.updatedGarb)
+        console.log(obj,obj.updatedGarb,'opponent new piece',obj.tspin)
         //console.log(obj.lines)
         p2.currentPiece = obj.pieceData
         p2.grid = obj.grid
@@ -860,14 +823,20 @@ const eventFunctions = {
                  
         
         let dmg = obj.tspin ? obj.lines*2 : DMG_Values[obj.lines]
-        if(dmg){
+        if(dmg != 0){
+            if(obj.updatedPlaced.length === 0 && obj.updatedGarb.length === 0) dmg+=10
+            console.log("received damage:", dmg)
             p1.dmgbar.style.height = parseInt(p1.dmgbar.style.height) + (dmg*unit) + 'px'
+            dc.send(JSON.stringify({
+                    type:'updateDmgBar',
+                    data: p1.dmgbar.style.height
+                }))
             p1.garbageQueue.push(dmg)
         }
         
     },
     updateDmgBar(height){
-        console.log('updating')
+        console.log('updating',height)
         p2.dmgbar.style.height = height
     },
     start(){
@@ -897,20 +866,22 @@ peerConnection.addEventListener("datachannel", (ev) => {
 });
 
 offerContainer.querySelector('button').onclick = async function() {
-    //const offer = await 
+    
     p2p.createOffer(
         offerContainer.querySelector('textarea'),peerConnection
     )
     this.blur();
+    answerContainer.querySelector('button').disabled = true;
 }
 
 answerContainer.querySelector('button').onclick = async function() {
     let offer = JSON.parse(offerContainer.querySelector('textarea').value)
-    //const answer = await 
+    
     p2p.createAnswer(
         offer,answerContainer.querySelector('textarea'),peerConnection
     )
     this.blur();
+    offerContainer.querySelector('button').disabled = true;
 }
 
 addAnswerContainer.querySelector('button').onclick = function() {
@@ -945,6 +916,8 @@ peerConnection.onconnectionstatechange = (e) => {
     let state = peerConnection.connectionState
     if(state === 'failed' || state === 'disconnected' || state === 'closed'){
         connected = false
+        answerContainer.querySelector('button').disabled = false;
+        offerContainer.querySelector('button').disabled = false;
         document.querySelector('#startMP').onclick()
     }
 console.log(e,peerConnection.connectionState)
